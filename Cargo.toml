@@ -1,6 +1,6 @@
 [package]
 name = "serde-vars"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["David Herberth <github@dav1d.de>"]
 description = "Conveniently expose (environment) variables to your serde based data structures, like configurations."
 license = "MIT"
