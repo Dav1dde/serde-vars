@@ -93,6 +93,7 @@
 mod content;
 mod de;
 pub mod source;
+mod value;
 
 pub use self::de::Deserializer;
 pub use self::source::{EnvSource, MapSource, StringSource};

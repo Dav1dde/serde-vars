@@ -126,8 +126,10 @@ struct Complex<'a> {
     f32: f32,
     f64: f64,
 
+    #[serde(borrow)]
     str: Cow<'a, str>,
     string: String,
+    byte_buf: serde_bytes::ByteBuf,
 
     map_u32: BTreeMap<String, u32>,
     vec_u32: Vec<u32>,
@@ -173,6 +175,7 @@ fn test_complex_vars() {
         ("f64".to_owned(), "2.0".to_owned()),
         ("str".to_owned(), "foo_str".to_owned()),
         ("string".to_owned(), "bar_string".to_owned()),
+        ("byte_buf".to_owned(), "aaa".to_owned()),
         ("map_u32_0".to_owned(), "100".to_owned()),
         ("map_u32_1".to_owned(), "200".to_owned()),
         ("vec_u32_0".to_owned(), "3".to_owned()),
@@ -203,6 +206,7 @@ fn test_complex_vars() {
 
         "str": "${str}",
         "string": "${string}",
+        "byte_buf": "${byte_buf}",
 
         "map_u32": {"${KEY}": "${map_u32_0}", "other": "${map_u32_1}", "another": 42},
         "vec_u32": [0, 1, 2, "${vec_u32_0}", 4, 5, "${vec_u32_1}"],
@@ -231,6 +235,11 @@ fn test_complex_vars() {
         f64: 2.0,
         str: "foo_str",
         string: "bar_string",
+        byte_buf: [
+            97,
+            97,
+            97,
+        ],
         map_u32: {
             "${KEY}": 100,
             "another": 42,
@@ -287,6 +296,7 @@ fn test_complex_no_vars() {
 
         "str": "foo_str",
         "string": "bar_string",
+        "byte_buf": "aaa",
 
         "map_u32": {"${KEY}": 100, "other": 200, "another": 42},
         "vec_u32": [0, 1, 2, 3, 4, 5, 6],
@@ -315,6 +325,11 @@ fn test_complex_no_vars() {
         f64: 2.0,
         str: "foo_str",
         string: "bar_string",
+        byte_buf: [
+            97,
+            97,
+            97,
+        ],
         map_u32: {
             "${KEY}": 100,
             "another": 42,

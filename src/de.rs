@@ -203,7 +203,7 @@ where
         V: de::Visitor<'de>,
     {
         // See `deserialize_string` why we deserialize into a byte buf directly here.
-        let content = Content::ByteBuf(Deserialize::deserialize(self.de)?);
+        let content = Content::ByteBuf(crate::value::deserialize_byte_buf(self.de)?);
         ContentVarDeserializer::new(content, self.source).deserialize_byte_buf(visitor)
     }
 
@@ -845,11 +845,14 @@ where
     where
         V: Visitor<'de>,
     {
-        match self.content {
-            Content::String(_) | Content::Str(_) => self.deserialize_str(visitor),
-            Content::ByteBuf(v) => visitor.visit_byte_buf(v),
-            Content::Bytes(v) => visitor.visit_borrowed_bytes(v),
-            _ => Err(self.invalid_type(&visitor)),
+        match match self.content {
+            Content::String(_) | Content::Str(_) => return self.deserialize_str(visitor),
+            Content::ByteBuf(v) => self.source.expand_bytes(Cow::Owned(v))?,
+            Content::Bytes(v) => self.source.expand_bytes(Cow::Borrowed(v))?,
+            _ => return Err(self.invalid_type(&visitor)),
+        } {
+            Cow::Owned(v) => visitor.visit_byte_buf(v),
+            Cow::Borrowed(v) => visitor.visit_bytes(v),
         }
     }
 

@@ -245,6 +245,23 @@ where
         }
     }
 
+    fn expand_bytes<'a, E>(&mut self, v: Cow<'a, [u8]>) -> Result<Cow<'a, [u8]>, E>
+    where
+        E: de::Error,
+    {
+        if !v.starts_with(self.prefix.as_bytes()) || !v.ends_with(self.suffix.as_bytes()) {
+            return Ok(v);
+        }
+
+        match bytes_to_str(v) {
+            Ok(s) => self.expand_str(s).map(|s| match s {
+                Cow::Owned(s) => Cow::Owned(s.into_bytes()),
+                Cow::Borrowed(s) => Cow::Borrowed(s.as_bytes()),
+            }),
+            Err(v) => Ok(v),
+        }
+    }
+
     fn expand_bool<E>(&mut self, v: &str) -> Result<bool, E>
     where
         E: de::Error,
@@ -360,5 +377,16 @@ fn parse(s: Cow<'_, str>) -> Any<'_> {
             .or_else(|_| v.parse().map(Any::I64))
             .or_else(|_| v.parse().map(Any::F64))
             .unwrap_or_else(|_| Any::Str(strip_str(s))),
+    }
+}
+
+fn bytes_to_str(v: Cow<'_, [u8]>) -> Result<Cow<'_, str>, Cow<'_, [u8]>> {
+    match v {
+        Cow::Owned(v) => String::from_utf8(v)
+            .map(Cow::Owned)
+            .map_err(|e| Cow::Owned(e.into_bytes())),
+        Cow::Borrowed(v) => std::str::from_utf8(v)
+            .map(Cow::Borrowed)
+            .map_err(|_| Cow::Borrowed(v)),
     }
 }

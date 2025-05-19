@@ -73,6 +73,17 @@ pub trait Source {
     where
         E: de::Error;
 
+    /// Expands bytes into other bytes.
+    ///
+    /// If the bytes `v`, do not contain a variable reference the method
+    /// is supposed to return the original bytes.
+    ///
+    /// Implementations which can expand strings, should also expand byte sequences
+    /// which are valid utf-8.
+    fn expand_bytes<'a, E>(&mut self, v: Cow<'a, [u8]>) -> Result<Cow<'a, [u8]>, E>
+    where
+        E: de::Error;
+
     /// Expands a variable string to [`Any`].
     ///
     /// Required for self-describing deserialization, where the resulting type
@@ -100,6 +111,7 @@ pub enum Any<'a> {
     F32(f32),
     F64(f64),
     Str(Cow<'a, str>),
+    Bytes(Cow<'a, [u8]>),
 }
 
 impl<'a> Any<'a> {
@@ -118,6 +130,7 @@ impl<'a> Any<'a> {
             Any::F32(v) => de::Unexpected::Float(f64::from(*v)),
             Any::F64(v) => de::Unexpected::Float(*v),
             Any::Str(v) => de::Unexpected::Str(v),
+            Any::Bytes(v) => de::Unexpected::Bytes(v),
         }
     }
 
@@ -128,6 +141,7 @@ impl<'a> Any<'a> {
     {
         match self {
             Any::Str(Cow::Borrowed(v)) => visitor.visit_borrowed_str(v),
+            Any::Bytes(Cow::Borrowed(v)) => visitor.visit_borrowed_bytes(v),
             other => other.visit(visitor),
         }
     }
@@ -151,6 +165,8 @@ impl<'a> Any<'a> {
             Any::F64(v) => visitor.visit_f64(v),
             Any::Str(Cow::Owned(v)) => visitor.visit_string(v),
             Any::Str(Cow::Borrowed(v)) => visitor.visit_str(v),
+            Any::Bytes(Cow::Owned(v)) => visitor.visit_byte_buf(v),
+            Any::Bytes(Cow::Borrowed(v)) => visitor.visit_bytes(v),
         }
     }
 }
