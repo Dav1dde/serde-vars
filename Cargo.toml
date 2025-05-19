@@ -9,6 +9,15 @@ repository = "https://github.com/Dav1dde/serde-vars"
 edition = "2021"
 
 
+[lints.clippy]
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+
+
 [dependencies]
 serde = "1"
 
