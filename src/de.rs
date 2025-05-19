@@ -169,28 +169,42 @@ where
     where
         V: de::Visitor<'de>,
     {
-        ContentVarDeserializer::from_de(self.de, self.source)?.deserialize_str(visitor)
+        // TODO: support zero copy/borrowed strings here.
+        // To support this we need a custom visitor which can differentiate between
+        // a borrowed `&'de str` and just a referenced `&str` as well as accept `String`.
+        self.deserialize_string(visitor)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        ContentVarDeserializer::from_de(self.de, self.source)?.deserialize_string(visitor)
+        // Directly deserialize into a `String` here, because we do not need support arbitrary
+        // types here (through any). Here we can always expect a string, no matter if the value
+        // contains a variable reference or not.
+        // This allows formats, like YAML, which can deserialize a value into multiple types,
+        // to yield a string when they otherwise would yield another type (e.g. u64).
+        let content = Content::String(Deserialize::deserialize(self.de)?);
+        ContentVarDeserializer::new(content, self.source).deserialize_string(visitor)
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        ContentVarDeserializer::from_de(self.de, self.source)?.deserialize_bytes(visitor)
+        // TODO: support zero copy/borrowed bytes here.
+        // To support this we need a custom visitor which can differentiate between
+        // a borrowed `&'de str` and just a referenced `&str` as well as accept `String`.
+        self.deserialize_byte_buf(visitor)
     }
 
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        ContentVarDeserializer::from_de(self.de, self.source)?.deserialize_byte_buf(visitor)
+        // See `deserialize_string` why we deserialize into a byte buf directly here.
+        let content = Content::ByteBuf(Deserialize::deserialize(self.de)?);
+        ContentVarDeserializer::new(content, self.source).deserialize_byte_buf(visitor)
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
