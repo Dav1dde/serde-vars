@@ -96,7 +96,7 @@ pub mod source;
 mod value;
 
 pub use self::de::Deserializer;
-pub use self::source::{EnvSource, MapSource, StringSource};
+pub use self::source::{EnvSource, FileSource, MapSource, StringSource};
 
 /// Entry point. See [crate documentation](crate) for an example.
 pub fn deserialize<'de, D, S, T>(deserializer: D, source: &mut S) -> Result<T, D::Error>

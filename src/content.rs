@@ -27,7 +27,7 @@ pub enum Content<'de> {
 
 impl Content<'_> {
     #[cold]
-    pub fn unexpected(&self) -> de::Unexpected {
+    pub fn unexpected(&self) -> de::Unexpected<'_> {
         match *self {
             Content::Bool(b) => de::Unexpected::Bool(b),
             Content::U8(n) => de::Unexpected::Unsigned(n as u64),

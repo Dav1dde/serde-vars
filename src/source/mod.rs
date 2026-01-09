@@ -4,8 +4,11 @@ use std::borrow::Cow;
 
 use serde::de;
 
+mod file;
 mod string;
+mod utils;
 
+pub use self::file::*;
 pub use self::string::*;
 
 /// A [`Source`] expands a variable string into a concrete value.

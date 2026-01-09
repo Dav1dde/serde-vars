@@ -1,7 +1,5 @@
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
-};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::Deserialize;
 use serde_vars::MapSource;

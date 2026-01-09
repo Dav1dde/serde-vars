@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use crate::source::utils;
+
 use super::{Any, Source};
 use serde::de::{self, Unexpected};
 
@@ -56,11 +58,11 @@ pub type MapSource = StringSource<HashMap<String, String>>;
 /// This source only works with strings, but since data can be serialized into any type,
 /// it implements some basic conversion of data types through [`std::str::FromStr`].
 ///
-/// During deserialization most of the time, the target type is known. For example, when
-/// deserializing a field `foo: u32`, the target type is known to be `u32`. In these cases the [`StringSource`],
+/// During de-serialization most of the time, the target type is known. For example, when
+/// de-serializing a field `foo: u32`, the target type is known to be `u32`. In these cases the [`StringSource`],
 /// will attempt to parse the requested type from the provided string.
 ///
-/// When deserializing self-describing formats, like JSON or YAML into dynamic containers,
+/// When de-serializing self-describing formats, like JSON or YAML into dynamic containers,
 /// like for example:
 ///
 /// ```
@@ -89,8 +91,7 @@ pub type MapSource = StringSource<HashMap<String, String>>;
 /// ambiguous values to be explicitly marked as a string.
 #[derive(Debug)]
 pub struct StringSource<T> {
-    prefix: String,
-    suffix: String,
+    variable: utils::Variable,
     lookup: T,
 }
 
@@ -115,8 +116,7 @@ impl<T> StringSource<T> {
     /// ```
     pub fn new(lookup: T) -> Self {
         Self {
-            prefix: "${".to_owned(),
-            suffix: "}".to_owned(),
+            variable: Default::default(),
             lookup,
         }
     }
@@ -129,21 +129,21 @@ impl<T> StringSource<T> {
     /// # use serde_vars::StringSource;
     /// # use std::collections::HashMap;
     /// #
-    /// # let source = HashMap::from([("MY_VAR".to_owned(), "some secret value".to_owned())]);
-    /// # let mut source = StringSource::new(source).with_variable_prefix("$").with_variable_suffix("");
-    /// #
-    /// let mut de = serde_json::Deserializer::from_str(r#""$MY_VAR""#);
+    /// let source = HashMap::from([("MY_VAR".to_owned(), "some secret value".to_owned())]);
+    /// let mut source = StringSource::new(source).with_variable_prefix("${env:");
+    ///
+    /// let mut de = serde_json::Deserializer::from_str(r#""${env:MY_VAR}""#);
     /// let r: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
     /// assert_eq!(r, "some secret value");
     /// ```
     pub fn with_variable_prefix(mut self, prefix: impl Into<String>) -> Self {
-        self.prefix = prefix.into();
+        self.variable.prefix = prefix.into();
         self
     }
 
     /// Changes the variable suffix.
     pub fn with_variable_suffix(mut self, suffix: impl Into<String>) -> Self {
-        self.suffix = suffix.into();
+        self.variable.suffix = suffix.into();
         self
     }
 
@@ -170,19 +170,18 @@ where
     where
         E: de::Error,
     {
-        E::custom(format!(
-            "got variable `{}{var}{}`, but it does not exist",
-            self.prefix, self.suffix
-        ))
+        let var = self.variable.fmt(var);
+        E::custom(format!("got variable `{var}`, but it does not exist"))
     }
 
     fn expected_variable<E>(&self, v: &str, expected: &str) -> E
     where
         E: de::Error,
     {
+        let var = self.variable.fmt("<var>");
         E::invalid_value(
             de::Unexpected::Str(v),
-            &format!("expected {expected} or a variable").as_str(),
+            &format!("expected {expected} or a variable `{var}`").as_str(),
         )
     }
 
@@ -190,18 +189,11 @@ where
     where
         E: de::Error,
     {
+        let var = self.variable.fmt(var);
         E::invalid_value(
             unexpected,
-            &format!(
-                "variable `{}{var}{}` to be {expected}",
-                self.prefix, self.suffix
-            )
-            .as_str(),
+            &format!("variable `{var}` to be {expected}").as_str(),
         )
-    }
-
-    fn parse_var<'a>(&mut self, v: &'a str) -> Option<&'a str> {
-        v.strip_prefix(&self.prefix)?.strip_suffix(&self.suffix)
     }
 
     fn parsed<V, E>(&mut self, v: &str, expected: &str) -> Result<V, E>
@@ -210,7 +202,7 @@ where
         V::Err: std::fmt::Display,
         E: de::Error,
     {
-        let Some(var) = self.parse_var(v) else {
+        let Some(var) = self.variable.parse_str(v) else {
             return Err(self.expected_variable(v, expected));
         };
 
@@ -231,7 +223,7 @@ where
     where
         E: de::Error,
     {
-        let Some(var) = self.parse_var(&v) else {
+        let Some(var) = self.variable.parse_str(&v) else {
             // There is no variable in the string, the expanded variant is just the original.
             return Ok(v);
         };
@@ -249,7 +241,7 @@ where
     where
         E: de::Error,
     {
-        if !v.starts_with(self.prefix.as_bytes()) || !v.ends_with(self.suffix.as_bytes()) {
+        if self.variable.parse_bytes(&v).is_none() {
             return Ok(v);
         }
 
@@ -343,7 +335,7 @@ where
     where
         E: de::Error,
     {
-        let Some(var) = self.parse_var(&v) else {
+        let Some(var) = self.variable.parse_str(&v) else {
             // There is no variable in the string, the expanded variant is just the original.
             return Ok(Any::Str(v));
         };
@@ -355,31 +347,6 @@ where
     }
 }
 
-fn strip_str(s: Cow<'_, str>) -> Cow<'_, str> {
-    match s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        Some(s) => Cow::Owned(s.to_owned()),
-        None => s,
-    }
-}
-
-fn parse(s: Cow<'_, str>) -> Any<'_> {
-    match s.as_ref() {
-        "true" => Any::Bool(true),
-        "false" => Any::Bool(false),
-        // Try in order:
-        //  - parse f64
-        //  - parse u64
-        //  - parse string escape `"<str>"`
-        //  - use the literal string
-        v => v
-            .parse()
-            .map(Any::U64)
-            .or_else(|_| v.parse().map(Any::I64))
-            .or_else(|_| v.parse().map(Any::F64))
-            .unwrap_or_else(|_| Any::Str(strip_str(s))),
-    }
-}
-
 fn bytes_to_str(v: Cow<'_, [u8]>) -> Result<Cow<'_, str>, Cow<'_, [u8]>> {
     match v {
         Cow::Owned(v) => String::from_utf8(v)
@@ -388,5 +355,20 @@ fn bytes_to_str(v: Cow<'_, [u8]>) -> Result<Cow<'_, str>, Cow<'_, [u8]>> {
         Cow::Borrowed(v) => std::str::from_utf8(v)
             .map(Cow::Borrowed)
             .map_err(|_| Cow::Borrowed(v)),
+    }
+}
+
+/// Like [`utils::parse`], but additionally also strips optional `"` from the string.
+fn parse(s: Cow<'_, str>) -> Any<'_> {
+    fn strip_str(s: Cow<'_, str>) -> Cow<'_, str> {
+        match s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            Some(s) => Cow::Owned(s.to_owned()),
+            None => s,
+        }
+    }
+
+    match utils::parse(s) {
+        Any::Str(s) => Any::Str(strip_str(s)),
+        other => other,
     }
 }
