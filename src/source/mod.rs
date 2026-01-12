@@ -12,78 +12,83 @@ pub use self::file::*;
 pub use self::string::*;
 
 /// A [`Source`] expands a variable string into a concrete value.
+///
+/// All methods return `Result<Option<T>, E>` where:
+/// - `Ok(None)` means the input string is not recognized as a variable (e.g., prefix/suffix don't match)
+/// - `Ok(Some(v))` means the variable was successfully resolved
+/// - `Err(e)` means an error occurred (e.g., variable recognized but resolution failed)
 pub trait Source {
     /// Expands a variable string to a boolean.
-    fn expand_bool<E>(&mut self, v: &str) -> Result<bool, E>
+    fn expand_bool<E>(&mut self, v: &str) -> Result<Option<bool>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `i8`.
-    fn expand_i8<E>(&mut self, v: &str) -> Result<i8, E>
+    fn expand_i8<E>(&mut self, v: &str) -> Result<Option<i8>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `i16`.
-    fn expand_i16<E>(&mut self, v: &str) -> Result<i16, E>
+    fn expand_i16<E>(&mut self, v: &str) -> Result<Option<i16>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `i32`.
-    fn expand_i32<E>(&mut self, v: &str) -> Result<i32, E>
+    fn expand_i32<E>(&mut self, v: &str) -> Result<Option<i32>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `i64`.
-    fn expand_i64<E>(&mut self, v: &str) -> Result<i64, E>
+    fn expand_i64<E>(&mut self, v: &str) -> Result<Option<i64>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `u8`.
-    fn expand_u8<E>(&mut self, v: &str) -> Result<u8, E>
+    fn expand_u8<E>(&mut self, v: &str) -> Result<Option<u8>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `u16`.
-    fn expand_u16<E>(&mut self, v: &str) -> Result<u16, E>
+    fn expand_u16<E>(&mut self, v: &str) -> Result<Option<u16>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `u32`.
-    fn expand_u32<E>(&mut self, v: &str) -> Result<u32, E>
+    fn expand_u32<E>(&mut self, v: &str) -> Result<Option<u32>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to an `u64`.
-    fn expand_u64<E>(&mut self, v: &str) -> Result<u64, E>
+    fn expand_u64<E>(&mut self, v: &str) -> Result<Option<u64>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to a `f32`.
-    fn expand_f32<E>(&mut self, v: &str) -> Result<f32, E>
+    fn expand_f32<E>(&mut self, v: &str) -> Result<Option<f32>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to a `f64`.
-    fn expand_f64<E>(&mut self, v: &str) -> Result<f64, E>
+    fn expand_f64<E>(&mut self, v: &str) -> Result<Option<f64>, E>
     where
         E: de::Error;
 
     /// Expands a variable string to string.
     ///
-    /// If the string `v`, does not contain a variable reference the method
-    /// is supposed to return the original string.
-    fn expand_str<'a, E>(&mut self, v: Cow<'a, str>) -> Result<Cow<'a, str>, E>
+    /// Returns `Ok(None)` if the string does not contain a variable reference.
+    /// The caller should use the original string in this case.
+    fn expand_str<'a, E>(&mut self, v: &'a str) -> Result<Option<Cow<'a, str>>, E>
     where
         E: de::Error;
 
     /// Expands bytes into other bytes.
     ///
-    /// If the bytes `v`, do not contain a variable reference the method
-    /// is supposed to return the original bytes.
+    /// Returns `Ok(None)` if the bytes do not contain a variable reference.
+    /// The caller should use the original bytes in this case.
     ///
     /// Implementations which can expand strings, should also expand byte sequences
     /// which are valid utf-8.
-    fn expand_bytes<'a, E>(&mut self, v: Cow<'a, [u8]>) -> Result<Cow<'a, [u8]>, E>
+    fn expand_bytes<'a, E>(&mut self, v: &'a [u8]) -> Result<Option<Cow<'a, [u8]>>, E>
     where
         E: de::Error;
 
@@ -92,8 +97,9 @@ pub trait Source {
     /// Required for self-describing deserialization, where the resulting type
     /// depends on the type deserialized.
     ///
-    /// For strings this needs the same behaviour as [`Source::expand_str`].
-    fn expand_any<'a, E>(&mut self, v: Cow<'a, str>) -> Result<Any<'a>, E>
+    /// Returns `Ok(None)` if the string does not contain a variable reference.
+    /// The caller should use the original string in this case.
+    fn expand_any<'a, E>(&mut self, v: &'a str) -> Result<Option<Any<'a>>, E>
     where
         E: de::Error;
 }

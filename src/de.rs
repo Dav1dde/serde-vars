@@ -456,25 +456,30 @@ where
     where
         E: de::Error,
     {
-        self.source
-            .expand_any(Cow::Borrowed(v))?
-            .visit(self.delegate)
+        match self.source.expand_any(v)? {
+            Some(any) => any.visit(self.delegate),
+            None => self.delegate.visit_str(v),
+        }
     }
 
     fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        self.source
-            .expand_any(Cow::Borrowed(v))?
-            .visit_borrowed(self.delegate)
+        match self.source.expand_any(v)? {
+            Some(any) => any.visit_borrowed(self.delegate),
+            None => self.delegate.visit_borrowed_str(v),
+        }
     }
 
     fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        self.source.expand_any(Cow::Owned(v))?.visit(self.delegate)
+        match self.source.expand_any(&v)? {
+            Some(any) => any.visit(self.delegate),
+            None => self.delegate.visit_string(v),
+        }
     }
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
@@ -659,7 +664,7 @@ where
         self,
         visitor: V,
         f: impl FnOnce(V, F) -> Result<V::Value, E>,
-        mut conv: impl FnMut(&mut S, &str) -> Result<F, E>,
+        mut conv: impl FnMut(&mut S, &str) -> Result<Option<F>, E>,
     ) -> Result<V::Value, E>
     where
         V: Visitor<'de>,
@@ -673,8 +678,14 @@ where
             Content::I16(v) => visitor.visit_i16(v),
             Content::I32(v) => visitor.visit_i32(v),
             Content::I64(v) => visitor.visit_i64(v),
-            Content::Str(s) => f(visitor, conv(self.source, s)?),
-            Content::String(ref s) => f(visitor, conv(self.source, s)?),
+            Content::Str(s) => match conv(self.source, s)? {
+                Some(v) => f(visitor, v),
+                None => Err(de::Error::invalid_type(de::Unexpected::Str(s), &visitor)),
+            },
+            Content::String(ref s) => match conv(self.source, s)? {
+                Some(v) => f(visitor, v),
+                None => Err(de::Error::invalid_type(de::Unexpected::Str(s), &visitor)),
+            },
             _ => Err(self.invalid_type(&visitor)),
         }
     }
@@ -683,7 +694,7 @@ where
         self,
         visitor: V,
         f: impl FnOnce(V, F) -> Result<V::Value, E>,
-        mut conv: impl FnMut(&mut S, &str) -> Result<F, E>,
+        mut conv: impl FnMut(&mut S, &str) -> Result<Option<F>, E>,
     ) -> Result<V::Value, E>
     where
         V: Visitor<'de>,
@@ -699,8 +710,14 @@ where
             Content::I16(v) => visitor.visit_i16(v),
             Content::I32(v) => visitor.visit_i32(v),
             Content::I64(v) => visitor.visit_i64(v),
-            Content::Str(s) => f(visitor, conv(self.source, s)?),
-            Content::String(ref s) => f(visitor, conv(self.source, s)?),
+            Content::Str(s) => match conv(self.source, s)? {
+                Some(v) => f(visitor, v),
+                None => Err(de::Error::invalid_type(de::Unexpected::Str(s), &visitor)),
+            },
+            Content::String(ref s) => match conv(self.source, s)? {
+                Some(v) => f(visitor, v),
+                None => Err(de::Error::invalid_type(de::Unexpected::Str(s), &visitor)),
+            },
             _ => Err(self.invalid_type(&visitor)),
         }
     }
@@ -726,8 +743,14 @@ where
     {
         match self.content {
             Content::Bool(v) => visitor.visit_bool(v),
-            Content::Str(s) => visitor.visit_bool(self.source.expand_bool(s)?),
-            Content::String(ref s) => visitor.visit_bool(self.source.expand_bool(s)?),
+            Content::Str(s) => match self.source.expand_bool(s)? {
+                Some(v) => visitor.visit_bool(v),
+                None => Err(de::Error::invalid_type(de::Unexpected::Str(s), &visitor)),
+            },
+            Content::String(ref s) => match self.source.expand_bool(s)? {
+                Some(v) => visitor.visit_bool(v),
+                None => Err(de::Error::invalid_type(de::Unexpected::Str(s), &visitor)),
+            },
             _ => Err(self.invalid_type(&visitor)),
         }
     }
@@ -824,13 +847,22 @@ where
     where
         V: Visitor<'de>,
     {
-        match match self.content {
-            Content::String(v) => self.source.expand_str(Cow::Owned(v))?,
-            Content::Str(v) => self.source.expand_str(Cow::Borrowed(v))?,
-            _ => return Err(self.invalid_type(&visitor)),
-        } {
-            Cow::Owned(s) => visitor.visit_string(s),
-            Cow::Borrowed(s) => visitor.visit_borrowed_str(s),
+        match self.content {
+            Content::String(v) => match self.source.expand_str(&v)? {
+                Some(expanded) => match expanded {
+                    Cow::Owned(s) => visitor.visit_string(s),
+                    Cow::Borrowed(s) => visitor.visit_str(s),
+                },
+                None => visitor.visit_string(v),
+            },
+            Content::Str(v) => match self.source.expand_str(v)? {
+                Some(expanded) => match expanded {
+                    Cow::Owned(s) => visitor.visit_string(s),
+                    Cow::Borrowed(s) => visitor.visit_borrowed_str(s),
+                },
+                None => visitor.visit_borrowed_str(v),
+            },
+            _ => Err(self.invalid_type(&visitor)),
         }
     }
 
@@ -845,14 +877,23 @@ where
     where
         V: Visitor<'de>,
     {
-        match match self.content {
-            Content::String(_) | Content::Str(_) => return self.deserialize_str(visitor),
-            Content::ByteBuf(v) => self.source.expand_bytes(Cow::Owned(v))?,
-            Content::Bytes(v) => self.source.expand_bytes(Cow::Borrowed(v))?,
-            _ => return Err(self.invalid_type(&visitor)),
-        } {
-            Cow::Owned(v) => visitor.visit_byte_buf(v),
-            Cow::Borrowed(v) => visitor.visit_bytes(v),
+        match self.content {
+            Content::String(_) | Content::Str(_) => self.deserialize_str(visitor),
+            Content::ByteBuf(v) => match self.source.expand_bytes(&v)? {
+                Some(expanded) => match expanded {
+                    Cow::Owned(b) => visitor.visit_byte_buf(b),
+                    Cow::Borrowed(b) => visitor.visit_bytes(b),
+                },
+                None => visitor.visit_byte_buf(v),
+            },
+            Content::Bytes(v) => match self.source.expand_bytes(v)? {
+                Some(expanded) => match expanded {
+                    Cow::Owned(b) => visitor.visit_byte_buf(b),
+                    Cow::Borrowed(b) => visitor.visit_borrowed_bytes(b),
+                },
+                None => visitor.visit_borrowed_bytes(v),
+            },
+            _ => Err(self.invalid_type(&visitor)),
         }
     }
 

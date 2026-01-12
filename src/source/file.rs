@@ -143,17 +143,6 @@ impl FileSource {
         ))
     }
 
-    fn expected_variable<E>(&self, v: &str, expected: &str) -> E
-    where
-        E: de::Error,
-    {
-        let var = self.variable.fmt("<var>");
-        E::invalid_value(
-            de::Unexpected::Str(v),
-            &format!("expected {expected} or a file variable `{var}`").as_str(),
-        )
-    }
-
     fn mismatched_type<E>(&self, var: &str, unexpected: de::Unexpected<'_>, expected: &str) -> E
     where
         E: de::Error,
@@ -165,14 +154,14 @@ impl FileSource {
         )
     }
 
-    fn parsed<V, E>(&mut self, v: &str, expected: &str) -> Result<V, E>
+    fn parsed<V, E>(&mut self, v: &str, expected: &str) -> Result<Option<V>, E>
     where
         V: std::str::FromStr,
         V::Err: std::fmt::Display,
         E: de::Error,
     {
         let Some(var) = self.variable.parse_str(v) else {
-            return Err(self.expected_variable(v, expected));
+            return Ok(None);
         };
 
         let path = self.resolve_path(var.as_ref());
@@ -181,17 +170,18 @@ impl FileSource {
 
         value
             .parse()
+            .map(Some)
             .map_err(|_| self.mismatched_type(var, de::Unexpected::Str(&value), expected))
     }
 }
 
 impl Source for FileSource {
-    fn expand_str<'a, E>(&mut self, v: Cow<'a, str>) -> Result<Cow<'a, str>, E>
+    fn expand_str<'a, E>(&mut self, v: &'a str) -> Result<Option<Cow<'a, str>>, E>
     where
         E: serde::de::Error,
     {
-        let Some(var) = self.variable.parse_str(&v) else {
-            return Ok(v);
+        let Some(var) = self.variable.parse_str(v) else {
+            return Ok(None);
         };
 
         let path = self.resolve_path(var.as_ref());
@@ -199,22 +189,22 @@ impl Source for FileSource {
             .map_err(|error| self.io_error(&path, var.as_ref(), error))?;
 
         match utils::parse(Cow::Owned(value)) {
-            Any::Str(value) => Ok(value),
+            Any::Str(value) => Ok(Some(value)),
             other => Err(self.mismatched_type(var, other.unexpected(), "a string")),
         }
     }
 
-    fn expand_bytes<'a, E>(&mut self, v: Cow<'a, [u8]>) -> Result<Cow<'a, [u8]>, E>
+    fn expand_bytes<'a, E>(&mut self, v: &'a [u8]) -> Result<Option<Cow<'a, [u8]>>, E>
     where
         E: serde::de::Error,
     {
-        let Some(var) = self.variable.parse_bytes(&v) else {
-            return Ok(v);
+        let Some(var) = self.variable.parse_bytes(v) else {
+            return Ok(None);
         };
 
         #[cfg(unix)]
         let path = {
-            use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+            use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
             Path::new(OsStr::from_bytes(var))
         };
         // Technically `wasi` also provides an `OsStrExt` which allows conversion from bytes, but
@@ -224,112 +214,110 @@ impl Source for FileSource {
         let path = {
             match std::str::from_utf8(var) {
                 Ok(s) => Path::new(s),
-                Err(_) => return Ok(v), // TODO: error here
+                Err(_) => return Ok(None),
             }
         };
 
         let full_path = self.resolve_path(path);
-        let value =
-            std::fs::read(&full_path).map_err(|error| self.io_error(&full_path, path, error))?;
-
-        Ok(Cow::Owned(value))
+        std::fs::read(&full_path)
+            .map(|v| Some(Cow::Owned(v)))
+            .map_err(|error| self.io_error(&full_path, path, error))
     }
 
-    fn expand_bool<E>(&mut self, v: &str) -> Result<bool, E>
+    fn expand_bool<E>(&mut self, v: &str) -> Result<Option<bool>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a boolean")
     }
 
-    fn expand_i8<E>(&mut self, v: &str) -> Result<i8, E>
+    fn expand_i8<E>(&mut self, v: &str) -> Result<Option<i8>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a signed integer (i8)")
     }
 
-    fn expand_i16<E>(&mut self, v: &str) -> Result<i16, E>
+    fn expand_i16<E>(&mut self, v: &str) -> Result<Option<i16>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a signed integer (i16)")
     }
 
-    fn expand_i32<E>(&mut self, v: &str) -> Result<i32, E>
+    fn expand_i32<E>(&mut self, v: &str) -> Result<Option<i32>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a signed integer (i32)")
     }
 
-    fn expand_i64<E>(&mut self, v: &str) -> Result<i64, E>
+    fn expand_i64<E>(&mut self, v: &str) -> Result<Option<i64>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a signed integer (i64)")
     }
 
-    fn expand_u8<E>(&mut self, v: &str) -> Result<u8, E>
+    fn expand_u8<E>(&mut self, v: &str) -> Result<Option<u8>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "an unsigned integer (i8)")
     }
 
-    fn expand_u16<E>(&mut self, v: &str) -> Result<u16, E>
+    fn expand_u16<E>(&mut self, v: &str) -> Result<Option<u16>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "an unsigned integer (i16)")
     }
 
-    fn expand_u32<E>(&mut self, v: &str) -> Result<u32, E>
+    fn expand_u32<E>(&mut self, v: &str) -> Result<Option<u32>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "an unsigned integer (i32)")
     }
 
-    fn expand_u64<E>(&mut self, v: &str) -> Result<u64, E>
+    fn expand_u64<E>(&mut self, v: &str) -> Result<Option<u64>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "an unsigned integer (i64)")
     }
 
-    fn expand_f32<E>(&mut self, v: &str) -> Result<f32, E>
+    fn expand_f32<E>(&mut self, v: &str) -> Result<Option<f32>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a floating point")
     }
 
-    fn expand_f64<E>(&mut self, v: &str) -> Result<f64, E>
+    fn expand_f64<E>(&mut self, v: &str) -> Result<Option<f64>, E>
     where
         E: de::Error,
     {
         self.parsed(v, "a floating point")
     }
 
-    fn expand_any<'a, E>(&mut self, v: Cow<'a, str>) -> Result<Any<'a>, E>
+    fn expand_any<'a, E>(&mut self, v: &'a str) -> Result<Option<Any<'a>>, E>
     where
         E: de::Error,
     {
-        let Some(var) = self.variable.parse_str(&v) else {
-            // There is no variable in the string, the expanded variant is just the original.
-            return Ok(Any::Str(v));
+        let Some(var) = self.variable.parse_str(v) else {
+            return Ok(None);
         };
 
         let path = self.resolve_path(var.as_ref());
-        let value =
-            std::fs::read(&path).map_err(|error| self.io_error(&path, var.as_ref(), error))?;
+        let value = std::fs::read(&path)
+            .map_err(|error| self.io_error(&path, var.as_ref(), error))?;
 
         let value = String::from_utf8(value)
             .map(Cow::Owned)
             .map(utils::parse)
             .unwrap_or_else(|err| Any::Bytes(Cow::Owned(err.into_bytes())));
-        Ok(value)
+        Ok(Some(value))
     }
 }
 
