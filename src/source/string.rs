@@ -282,21 +282,21 @@ where
     where
         E: de::Error,
     {
-        self.parsed(v, "an unsigned integer (i8)")
+        self.parsed(v, "an unsigned integer (u8)")
     }
 
     fn expand_u16<E>(&mut self, v: &str) -> Result<Option<u16>, E>
     where
         E: de::Error,
     {
-        self.parsed(v, "an unsigned integer (i16)")
+        self.parsed(v, "an unsigned integer (u16)")
     }
 
     fn expand_u32<E>(&mut self, v: &str) -> Result<Option<u32>, E>
     where
         E: de::Error,
     {
-        self.parsed(v, "an unsigned integer (i32)")
+        self.parsed(v, "an unsigned integer (u32)")
     }
 
     fn expand_u64<E>(&mut self, v: &str) -> Result<Option<u64>, E>

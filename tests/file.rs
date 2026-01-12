@@ -124,3 +124,83 @@ test_any!(test_any_integer, 123, 123);
 test_any!(test_any_negative_integer, -123, -123);
 test_any!(test_any_float, 123.45, 123.45);
 test_any!(test_any_string, "foobar", "foobar");
+
+// Tests for Source returning None when prefix/suffix don't match.
+// These tests verify that non-variable strings pass through unchanged for string types,
+// and error appropriately for primitive types.
+
+macro_rules! test_no_variable_string {
+    ($name:ident, $input:literal) => {
+        #[test]
+        fn $name() {
+            let mut source = FileSource::new();
+            let mut de = serde_json::Deserializer::from_str(concat!("\"", $input, "\""));
+
+            let s: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+            assert_eq!(s, $input);
+        }
+    };
+}
+
+// Strings without variable syntax should pass through unchanged
+test_no_variable_string!(test_no_variable_plain_string, "hello world");
+test_no_variable_string!(test_no_variable_partial_prefix, "${incomplete");
+test_no_variable_string!(test_no_variable_partial_suffix, "incomplete}");
+test_no_variable_string!(test_no_variable_wrong_prefix, "$[VAR]");
+test_no_variable_string!(test_no_variable_empty, "");
+
+macro_rules! test_no_variable_primitive_error {
+    ($name:ident, $ty:ty, $input:literal, $expected:literal) => {
+        #[test]
+        fn $name() {
+            let mut source = FileSource::new();
+            let mut de = serde_json::Deserializer::from_str(concat!("\"", $input, "\""));
+
+            let err: Result<$ty, _> = serde_vars::deserialize(&mut de, &mut source);
+            assert_eq!(&format!("{:?}", err), $expected);
+        }
+    };
+}
+
+// Primitives with non-variable strings should error (one test per deserialize_* code path)
+test_no_variable_primitive_error!(
+    test_no_variable_bool_error,
+    bool,
+    "not_a_var",
+    r#"Err(Error("invalid type: string \"not_a_var\", expected a boolean", line: 0, column: 0))"#
+);
+test_no_variable_primitive_error!(
+    test_no_variable_i32_error,
+    i32,
+    "not_a_var",
+    r#"Err(Error("invalid type: string \"not_a_var\", expected i32", line: 0, column: 0))"#
+);
+test_no_variable_primitive_error!(
+    test_no_variable_f64_error,
+    f64,
+    "not_a_var",
+    r#"Err(Error("invalid type: string \"not_a_var\", expected f64", line: 0, column: 0))"#
+);
+
+#[test]
+fn test_no_variable_with_custom_prefix() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(tempdir.path().join("secret.txt"), "secret_value").unwrap();
+
+    // Source configured with custom prefix/suffix
+    let mut source = FileSource::new()
+        .with_base_path(tempdir.path())
+        .with_variable_prefix("<<file:")
+        .with_variable_suffix(">>");
+
+    // This uses default ${} syntax which won't match the custom <<file:>> syntax
+    let mut de = serde_json::Deserializer::from_str(r#""${secret.txt}""#);
+    let s: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    // Should pass through unchanged since ${} doesn't match <<file:>>
+    assert_eq!(s, "${secret.txt}");
+
+    // This uses the correct syntax
+    let mut de = serde_json::Deserializer::from_str(r#""<<file:secret.txt>>""#);
+    let s: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    assert_eq!(s, "secret_value");
+}

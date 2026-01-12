@@ -400,3 +400,117 @@ fn test_enum_any_string_num() {
     }
     "###);
 }
+
+// Tests for Source returning None when prefix/suffix don't match.
+// These tests verify that non-variable strings pass through unchanged for string types,
+// and error appropriately for primitive types.
+
+macro_rules! test_no_variable_string {
+    ($name:ident, $input:literal) => {
+        #[test]
+        fn $name() {
+            let mut source = MapSource::default();
+            let mut de = serde_json::Deserializer::from_str(concat!("\"", $input, "\""));
+
+            let s: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+            assert_eq!(s, $input);
+        }
+    };
+}
+
+// Strings without variable syntax should pass through unchanged
+test_no_variable_string!(test_no_variable_plain_string, "hello world");
+test_no_variable_string!(test_no_variable_partial_prefix, "${incomplete");
+test_no_variable_string!(test_no_variable_partial_suffix, "incomplete}");
+test_no_variable_string!(test_no_variable_wrong_prefix, "$[VAR]");
+test_no_variable_string!(test_no_variable_empty, "");
+
+macro_rules! test_no_variable_primitive_error {
+    ($name:ident, $ty:ty, $input:literal, $expected:literal) => {
+        #[test]
+        fn $name() {
+            let mut source = MapSource::default();
+            let mut de = serde_json::Deserializer::from_str(concat!("\"", $input, "\""));
+
+            let err: Result<$ty, _> = serde_vars::deserialize(&mut de, &mut source);
+            assert_eq!(&format!("{:?}", err), $expected);
+        }
+    };
+}
+
+// Primitives with non-variable strings should error (one test per deserialize_* code path)
+test_no_variable_primitive_error!(
+    test_no_variable_bool_error,
+    bool,
+    "not_a_var",
+    r#"Err(Error("invalid type: string \"not_a_var\", expected a boolean", line: 0, column: 0))"#
+);
+test_no_variable_primitive_error!(
+    test_no_variable_i32_error,
+    i32,
+    "not_a_var",
+    r#"Err(Error("invalid type: string \"not_a_var\", expected i32", line: 0, column: 0))"#
+);
+test_no_variable_primitive_error!(
+    test_no_variable_f64_error,
+    f64,
+    "not_a_var",
+    r#"Err(Error("invalid type: string \"not_a_var\", expected f64", line: 0, column: 0))"#
+);
+
+#[test]
+fn test_no_variable_in_struct() {
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct Config {
+        name: String,
+        description: String,
+    }
+
+    let mut source = MapSource::default();
+    let mut de = serde_json::Deserializer::from_str(
+        r#"{"name": "my-app", "description": "A plain description without variables"}"#,
+    );
+
+    let config: Config = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    assert_eq!(config.name, "my-app");
+    assert_eq!(config.description, "A plain description without variables");
+}
+
+#[test]
+fn test_mixed_variable_and_literal_strings() {
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct Config {
+        from_var: String,
+        literal: String,
+    }
+
+    let mut source = MapSource::new(HashMap::from([("MY_VAR".to_owned(), "resolved".to_owned())]));
+    let mut de = serde_json::Deserializer::from_str(
+        r#"{"from_var": "${MY_VAR}", "literal": "just a string"}"#,
+    );
+
+    let config: Config = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    assert_eq!(config.from_var, "resolved");
+    assert_eq!(config.literal, "just a string");
+}
+
+#[test]
+fn test_no_variable_with_custom_prefix() {
+    use serde_vars::StringSource;
+
+    // Source configured with custom prefix/suffix
+    let mut source = StringSource::new(HashMap::from([("VAR".to_owned(), "value".to_owned())]))
+        .with_variable_prefix("<<")
+        .with_variable_suffix(">>");
+
+    // This uses default ${} syntax which won't match the custom <<>> syntax
+    let mut de = serde_json::Deserializer::from_str(r#""${VAR}""#);
+    let s: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    // Should pass through unchanged since ${VAR} doesn't match <<VAR>>
+    assert_eq!(s, "${VAR}");
+
+    // This uses the correct syntax
+    let mut de = serde_json::Deserializer::from_str(r#""<<VAR>>""#);
+    let s: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    assert_eq!(s, "value");
+}
