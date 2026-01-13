@@ -82,6 +82,12 @@
 //!
 //! For more details read the [`StringSource`] documentation.
 //!
+//! # File based Lookups
+//!
+//! Since `0.3` a [`FileSource`] has been added, it functions very similar to a string based
+//! source, but has slightly different semantics when it comes to parsing and allows loading
+//! arbitrary binary data.
+//!
 //! # Alternatives
 //!
 //! Variable expansion is limited to primitive types and not supported for nested data structures,

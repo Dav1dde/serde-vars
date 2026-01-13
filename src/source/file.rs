@@ -14,7 +14,7 @@ use crate::source::{utils, Any, Expansion, Source};
 //  - More validations (e.g. base-path)
 //  - A way to specify base path for relative paths
 
-/// A [`Source`] which provides values by reading them from the filesystem.
+/// A [`Source`] which provides values by reading them from the file-system.
 ///
 /// For string and byte types, the source will simply attempt to open the file and load its
 /// contents.
