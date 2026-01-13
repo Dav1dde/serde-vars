@@ -2,7 +2,8 @@ use std::{borrow::Cow, marker::PhantomData};
 
 use serde::de::{self, Deserialize, Visitor};
 
-use crate::{content::Content, source::Source};
+use crate::content::Content;
+use crate::source::Source;
 
 /// A deserializer which substitutes strings with values provided from a [`Source`].
 ///
@@ -658,50 +659,38 @@ where
     fn deserialize_integer<V, F>(
         self,
         visitor: V,
-        f: impl FnOnce(V, F) -> Result<V::Value, E>,
-        mut conv: impl FnMut(&mut S, &str) -> Result<F, E>,
+        visit: impl FnOnce(V, F) -> Result<V::Value, E>,
+        mut conv: impl FnMut(&mut S, &str) -> Result<Option<F>, E>,
     ) -> Result<V::Value, E>
     where
         V: Visitor<'de>,
     {
-        match self.content {
-            Content::U8(v) => visitor.visit_u8(v),
-            Content::U16(v) => visitor.visit_u16(v),
-            Content::U32(v) => visitor.visit_u32(v),
-            Content::U64(v) => visitor.visit_u64(v),
-            Content::I8(v) => visitor.visit_i8(v),
-            Content::I16(v) => visitor.visit_i16(v),
-            Content::I32(v) => visitor.visit_i32(v),
-            Content::I64(v) => visitor.visit_i64(v),
-            Content::Str(s) => f(visitor, conv(self.source, s)?),
-            Content::String(ref s) => f(visitor, conv(self.source, s)?),
-            _ => Err(self.invalid_type(&visitor)),
+        match match self.content {
+            Content::Str(s) => conv(self.source, s)?,
+            Content::String(ref s) => conv(self.source, s)?,
+            other => return other.visit(visitor),
+        } {
+            Some(v) => visit(visitor, v),
+            None => self.content.visit(visitor),
         }
     }
 
     fn deserialize_float<V, F>(
         self,
         visitor: V,
-        f: impl FnOnce(V, F) -> Result<V::Value, E>,
-        mut conv: impl FnMut(&mut S, &str) -> Result<F, E>,
+        visit: impl FnOnce(V, F) -> Result<V::Value, E>,
+        mut conv: impl FnMut(&mut S, &str) -> Result<Option<F>, E>,
     ) -> Result<V::Value, E>
     where
         V: Visitor<'de>,
     {
-        match self.content {
-            Content::F32(v) => visitor.visit_f32(v),
-            Content::F64(v) => visitor.visit_f64(v),
-            Content::U8(v) => visitor.visit_u8(v),
-            Content::U16(v) => visitor.visit_u16(v),
-            Content::U32(v) => visitor.visit_u32(v),
-            Content::U64(v) => visitor.visit_u64(v),
-            Content::I8(v) => visitor.visit_i8(v),
-            Content::I16(v) => visitor.visit_i16(v),
-            Content::I32(v) => visitor.visit_i32(v),
-            Content::I64(v) => visitor.visit_i64(v),
-            Content::Str(s) => f(visitor, conv(self.source, s)?),
-            Content::String(ref s) => f(visitor, conv(self.source, s)?),
-            _ => Err(self.invalid_type(&visitor)),
+        match match self.content {
+            Content::Str(s) => conv(self.source, s)?,
+            Content::String(ref s) => conv(self.source, s)?,
+            other => return other.visit(visitor),
+        } {
+            Some(v) => visit(visitor, v),
+            None => self.content.visit(visitor),
         }
     }
 }
@@ -724,11 +713,13 @@ where
     where
         V: Visitor<'de>,
     {
-        match self.content {
-            Content::Bool(v) => visitor.visit_bool(v),
-            Content::Str(s) => visitor.visit_bool(self.source.expand_bool(s)?),
-            Content::String(ref s) => visitor.visit_bool(self.source.expand_bool(s)?),
-            _ => Err(self.invalid_type(&visitor)),
+        match match self.content {
+            Content::Str(s) => self.source.expand_bool(s)?,
+            Content::String(ref s) => self.source.expand_bool(s)?,
+            other => return other.visit(visitor),
+        } {
+            Some(value) => visitor.visit_bool(value),
+            None => self.content.visit(visitor),
         }
     }
 
@@ -808,8 +799,7 @@ where
     {
         match self.content {
             Content::String(_) | Content::Str(_) => self.deserialize_str(visitor),
-            Content::Char(v) => visitor.visit_char(v),
-            _ => Err(self.invalid_type(&visitor)),
+            other => other.visit(visitor),
         }
     }
 
@@ -827,8 +817,10 @@ where
         match match self.content {
             Content::String(v) => self.source.expand_str(Cow::Owned(v))?,
             Content::Str(v) => self.source.expand_str(Cow::Borrowed(v))?,
-            _ => return Err(self.invalid_type(&visitor)),
-        } {
+            other => return other.visit(visitor),
+        }
+        .collapse()
+        {
             Cow::Owned(s) => visitor.visit_string(s),
             Cow::Borrowed(s) => visitor.visit_borrowed_str(s),
         }
@@ -849,8 +841,10 @@ where
             Content::String(_) | Content::Str(_) => return self.deserialize_str(visitor),
             Content::ByteBuf(v) => self.source.expand_bytes(Cow::Owned(v))?,
             Content::Bytes(v) => self.source.expand_bytes(Cow::Borrowed(v))?,
-            _ => return Err(self.invalid_type(&visitor)),
-        } {
+            other => return other.visit(visitor),
+        }
+        .collapse()
+        {
             Cow::Owned(v) => visitor.visit_byte_buf(v),
             Cow::Borrowed(v) => visitor.visit_bytes(v),
         }
