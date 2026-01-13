@@ -211,12 +211,7 @@ impl Source for FileSource {
         // since that seems to also be conditional on `target_env` for the sake of simplicity it's
         // omitted here and should be added on demand.
         #[cfg(not(unix))]
-        let path = {
-            match std::str::from_utf8(var) {
-                Ok(s) => Path::new(s),
-                Err(_) => return Ok(v), // TODO: error here
-            }
-        };
+        let path = std::str::from_utf8(var).map(Path::new).map_err(E::custom)?;
 
         let full_path = self.resolve_path(path);
         let value =

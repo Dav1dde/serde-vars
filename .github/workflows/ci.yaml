@@ -28,10 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust Toolchain
-        run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --no-self-update
+          rustup target add x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy
-        run: cargo clippy --all-features -- -D warnings
+      - name: Clippy Native
+        run: cargo clippy --all-features --tests -- -D warnings
+      - name: Clippy Windows
+        run: cargo clippy --all-features --tests --target x86_64-pc-windows-msvc -- -D warnings
 
   docs:
     name: Docs
