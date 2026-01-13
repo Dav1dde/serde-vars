@@ -32,3 +32,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
+      - name: Docs
+        run: cargo doc --workspace --all-features --no-deps --document-private-items
