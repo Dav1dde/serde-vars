@@ -6,6 +6,7 @@ use serde::de;
 
 mod file;
 mod string;
+mod tuple;
 mod utils;
 
 pub use self::file::*;
