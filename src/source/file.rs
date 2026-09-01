@@ -1,7 +1,5 @@
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 
 use serde::de;
 
@@ -13,6 +11,9 @@ use crate::source::{utils, Any, Expansion, Source};
 //  - Allow modifications to conversions
 //  - More validations (e.g. base-path)
 //  - A way to specify base path for relative paths
+
+/// A callback to load files.
+pub type FileLoader = Box<dyn FnMut(&Path) -> std::io::Result<Vec<u8>>>;
 
 /// A [`Source`] which provides values by reading them from the file-system.
 ///
@@ -51,6 +52,7 @@ use crate::source::{utils, Any, Expansion, Source};
 pub struct FileSource {
     base_path: PathBuf,
     variable: utils::Variable,
+    filesystem: FileSystem,
 }
 
 impl FileSource {
@@ -78,6 +80,7 @@ impl FileSource {
         Self {
             base_path: PathBuf::new(),
             variable: Default::default(),
+            filesystem: FileSystem::File,
         }
     }
 
@@ -92,6 +95,30 @@ impl FileSource {
         P: Into<PathBuf>,
     {
         self.base_path = path.into();
+        self
+    }
+
+    /// Configures a custom loader to read files.
+    ///
+    /// The loader is passed the path to read from the file system and is supposed to return the
+    /// file's contents.
+    ///
+    /// The loader defaults to [`std::fs::read`].
+    ///
+    /// # Examples:
+    ///
+    /// ```
+    /// use serde_vars::FileSource;
+    ///
+    /// let loader = |_: &std::path::Path| Ok(b"some secret value".as_slice().to_owned());
+    /// let mut source = FileSource::new().with_loader(Box::new(loader));
+    ///
+    /// let mut de = serde_json::Deserializer::from_str(r#""${my_file.txt}""#);
+    /// let r: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
+    /// assert_eq!(r, "some secret value");
+    /// ```
+    pub fn with_loader(mut self, loader: FileLoader) -> Self {
+        self.filesystem = FileSystem::Custom(loader);
         self
     }
 
@@ -165,7 +192,9 @@ impl FileSource {
         };
 
         let path = self.resolve_path(var.as_ref());
-        let value = std::fs::read_to_string(&path)
+        let value = self
+            .filesystem
+            .read_to_string(&path)
             .map_err(|error| self.io_error(&path, var.as_ref(), error))?;
 
         value
@@ -185,7 +214,9 @@ impl Source for FileSource {
         };
 
         let path = self.resolve_path(var.as_ref());
-        let value = std::fs::read_to_string(&path)
+        let value = self
+            .filesystem
+            .read_to_string(&path)
             .map_err(|error| self.io_error(&path, var.as_ref(), error))?;
 
         match utils::parse(Cow::Owned(value)) {
@@ -214,8 +245,10 @@ impl Source for FileSource {
         let path = std::str::from_utf8(var).map(Path::new).map_err(E::custom)?;
 
         let full_path = self.resolve_path(path);
-        let value =
-            std::fs::read(&full_path).map_err(|error| self.io_error(&full_path, path, error))?;
+        let value = self
+            .filesystem
+            .read(&full_path)
+            .map_err(|error| self.io_error(&full_path, path, error))?;
 
         Ok(Expansion::Expanded(Cow::Owned(value)))
     }
@@ -306,8 +339,10 @@ impl Source for FileSource {
         };
 
         let path = self.resolve_path(var.as_ref());
-        let value =
-            std::fs::read(&path).map_err(|error| self.io_error(&path, var.as_ref(), error))?;
+        let value = self
+            .filesystem
+            .read(&path)
+            .map_err(|error| self.io_error(&path, var.as_ref(), error))?;
 
         let value = String::from_utf8(value)
             .map(Cow::Owned)
@@ -320,5 +355,30 @@ impl Source for FileSource {
 impl Default for FileSource {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+enum FileSystem {
+    File,
+    Custom(FileLoader),
+}
+
+impl FileSystem {
+    fn read(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
+        match self {
+            Self::File => std::fs::read(path),
+            Self::Custom(fs) => (fs)(path),
+        }
+    }
+
+    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
+        match self {
+            Self::File => std::fs::read_to_string(path),
+            Self::Custom(_) => {
+                let bytes = self.read(path)?;
+                String::from_utf8(bytes)
+                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+            }
+        }
     }
 }
