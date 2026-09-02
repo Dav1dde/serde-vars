@@ -12,8 +12,32 @@ use crate::source::{utils, Any, Expansion, Source};
 //  - More validations (e.g. base-path)
 //  - A way to specify base path for relative paths
 
-/// A callback to load files.
-pub type FileLoader = Box<dyn FnMut(&Path) -> std::io::Result<Vec<u8>>>;
+/// A simple file-system abstraction for [`FileSource`].
+pub trait FileSystem {
+    /// Attempt to read the file contents at `path`.
+    fn read(&mut self, path: &Path) -> std::io::Result<Vec<u8>>;
+
+    /// Attempt to read the file contents at `path` into a `String`.
+    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
+        let bytes = self.read(path)?;
+        String::from_utf8(bytes)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+    }
+}
+
+/// A [`FileSystem`] which uses `std` to read files.
+#[derive(Debug, Clone, Copy)]
+pub struct StdFileSystem;
+
+impl FileSystem for StdFileSystem {
+    fn read(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+
+    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
+        std::fs::read_to_string(path)
+    }
+}
 
 /// A [`Source`] which provides values by reading them from the file-system.
 ///
@@ -49,13 +73,13 @@ pub type FileLoader = Box<dyn FnMut(&Path) -> std::io::Result<Vec<u8>>>;
 ///
 /// This source must not be used with untrusted user input, it provides unfiltered access to the
 /// filesystem.
-pub struct FileSource {
+pub struct FileSource<F> {
     base_path: PathBuf,
     variable: utils::Variable,
-    filesystem: FileSystem,
+    filesystem: F,
 }
 
-impl FileSource {
+impl FileSource<StdFileSystem> {
     /// Creates a [`FileSource`].
     ///
     /// By default the created source uses `${` and `}` as variable specifiers.
@@ -80,10 +104,12 @@ impl FileSource {
         Self {
             base_path: PathBuf::new(),
             variable: Default::default(),
-            filesystem: FileSystem::File,
+            filesystem: StdFileSystem,
         }
     }
+}
 
+impl<F> FileSource<F> {
     /// Configures the base path to use for relative paths.
     ///
     /// The configured path is joined with relative paths. To be independent of the
@@ -108,18 +134,28 @@ impl FileSource {
     /// # Examples:
     ///
     /// ```
-    /// use serde_vars::FileSource;
+    /// use serde_vars::source::{FileSource, FileSystem};
     ///
-    /// let loader = |_: &std::path::Path| Ok(b"some secret value".as_slice().to_owned());
-    /// let mut source = FileSource::new().with_loader(Box::new(loader));
+    /// struct CustomFs;
+    ///
+    /// impl FileSystem for CustomFs {
+    ///     fn read(&mut self, path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    ///         Ok(b"some secret value".to_vec())
+    ///     }
+    /// }
+    ///
+    /// let mut source = FileSource::new().with_file_system(CustomFs);
     ///
     /// let mut de = serde_json::Deserializer::from_str(r#""${my_file.txt}""#);
     /// let r: String = serde_vars::deserialize(&mut de, &mut source).unwrap();
     /// assert_eq!(r, "some secret value");
     /// ```
-    pub fn with_loader(mut self, loader: FileLoader) -> Self {
-        self.filesystem = FileSystem::Custom(loader);
-        self
+    pub fn with_file_system<T>(self, filesystem: T) -> FileSource<T> {
+        FileSource {
+            base_path: self.base_path,
+            variable: self.variable,
+            filesystem,
+        }
     }
 
     /// Changes the variable prefix.
@@ -151,7 +187,7 @@ impl FileSource {
     }
 }
 
-impl FileSource {
+impl<F: FileSystem> FileSource<F> {
     fn resolve_path<'a>(&self, path: &'a Path) -> Cow<'a, Path> {
         match path.is_absolute() {
             true => Cow::Borrowed(path),
@@ -204,7 +240,7 @@ impl FileSource {
     }
 }
 
-impl Source for FileSource {
+impl<F: FileSystem> Source for FileSource<F> {
     fn expand_str<'a, E>(&mut self, v: Cow<'a, str>) -> Result<Expansion<Cow<'a, str>>, E>
     where
         E: serde::de::Error,
@@ -352,33 +388,8 @@ impl Source for FileSource {
     }
 }
 
-impl Default for FileSource {
+impl Default for FileSource<StdFileSystem> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-enum FileSystem {
-    File,
-    Custom(FileLoader),
-}
-
-impl FileSystem {
-    fn read(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
-        match self {
-            Self::File => std::fs::read(path),
-            Self::Custom(fs) => (fs)(path),
-        }
-    }
-
-    fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
-        match self {
-            Self::File => std::fs::read_to_string(path),
-            Self::Custom(_) => {
-                let bytes = self.read(path)?;
-                String::from_utf8(bytes)
-                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
-            }
-        }
     }
 }
